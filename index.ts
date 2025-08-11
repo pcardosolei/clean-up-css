@@ -1,10 +1,7 @@
 import * as path from "path";
 import * as fs from "fs";
-import yargs from "yargs";
-import { hideBin } from "yargs/helpers";
-const argv = yargs(hideBin(process.argv)).parse();
-
 import { fileURLToPath } from "url";
+import type { ClassInfo } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,50 +53,45 @@ function getAllStyleFiles(dir: string): string[] {
   */
 
 // Extract classes and ids, including nested selectors, from CSS/SCSS content
-function extractClassesAndIds() {
-  const styleFiles = getAllStyleFiles(__dirname);
-  const classesAndIds = new Set<string>();
+function extractClassesAndIds(styleFiles: string[]) {
+  const classesAndIds: ClassInfo[] = [];
 
   styleFiles.forEach((filePath) => {
     const content = fs.readFileSync(filePath, "utf-8");
-    // Use a stack to track selector nesting
-    const lines = content.split(/\r?\n/);
-    const stack: string[] = [];
-    lines.forEach((line) => {
-      const trimmed = line.trim();
-      // Match selector lines
-      const selectorMatch = trimmed.match(/^([.#][\w-]+)([^{]*)\{/);
-      if (selectorMatch) {
-        let selector = selectorMatch[1];
-        if (!selector) return;
-        // Handle nested selectors with &
-        if (stack.length > 0 && selector.includes("&")) {
-          selector = selector.replace("&", stack[stack.length - 1]);
-        } else if (stack.length > 0) {
-          selector = stack[stack.length - 1] + selector;
+    const matches = content.match(/^(\s.&)?([.#][\w-]+)([^{]*)\{/gm);
+
+    matches &&
+      matches.forEach((element) => {
+        const type = element.includes("#") ? "id" : "class";
+        const isNested = element.includes("&");
+        let parent;
+
+        if (isNested) {
+          const size = classesAndIds.length;
+          parent = classesAndIds[size - 1] || null;
         }
-        stack.push(selector);
-        classesAndIds.add(selector);
-      } else if (trimmed === "}") {
-        stack.pop();
-      }
-    });
-    // Fallback: also match any standalone selectors (non-nested)
-    const regex = /([.#][\w-]+)/g;
-    let match;
-    while ((match = regex.exec(content))) {
-      classesAndIds.add(match[0]);
-    }
+
+        classesAndIds.push({
+          type,
+          isNested,
+          value: element,
+          parent: parent || null,
+        });
+      });
   });
   return classesAndIds;
 }
 
 function main(...args: string[]) {
-  console.log(args);
-  const classesAndIds = extractClassesAndIds();
+  const argFolder = args[0];
+
+  const styleFiles = getAllStyleFiles(argFolder || __dirname);
+  console.log("StyleFiles:", styleFiles);
+  const classesAndIds = extractClassesAndIds(styleFiles);
   console.log(classesAndIds);
 }
 
 export default main;
 
-console.log(argv);
+const optsArguments = process.argv.slice(2);
+main(...optsArguments);
